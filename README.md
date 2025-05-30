@@ -1,6 +1,6 @@
 # TOFOC - Tiny Open Format Offline Credential
 
-MIFARE DESFire shares no opinion about how applications or even file data should be formatted. TOFOC is an open, compact, and extensible 64-byte credential format intended for offline validation in access control environments.
+MIFARE DESFire shares no opinion about how applications or even file data should be formatted. TOFOC is an open, compact, and extensible 64-byte credential format intended for offline validation in access control environments. Here, we've provided 3 sample formats to get people started.
 
 It is designed to be:
 - **Open**: Anyone can suggest edits or new formats.
@@ -17,7 +17,7 @@ TOFOC supports multiple format versions to accommodate different access control 
 - `start_time`: Start timestamp (4 bytes, Unix time)
 - `expiration`: Expiration timestamp (4 bytes, Unix time)
 - `card_details`: Credential ID (5 bytes, H10304 format)
-- `allowed`: List of allowed door/access codes (2 bytes, up to 4 doors)
+- `allowed`: List of allowed door/access codes (2 bytes each, up to 4 doors)
 - `padding`: 0 bytes for the rest (min 1 byte, max 7 bytes)
 - `signature`: First 10 bytes of an ECC signature signed by a private key, of which the reader has the public key
 
@@ -39,28 +39,63 @@ signature_start = 0x2f91cb797b3d8d154adf
 final_payload = 0x0683510806849108010054001147e3f05f900DBd3ad02f91cb797b3d8d154adf
 ```
 
-### Version 1 (Simplified)
-- Removes `start_time` for credentials with no time-based start restriction
-- `expiration`: End timestamp
-- `id`: Credential ID
-- `allowed`: List of allowed access codes (shorter codes permitted)
+### Version 1 (Time-based Access)
+- `version`: The version (1 byte)
+- `end_time`: End timestamp (4 bytes, Unix time)
+- `id`: Credential ID (5 bytes, H10304 format)
+- `weekday_mask`: Bitmask for allowed days (1 byte, e.g., `0F` = Monday to Friday)
+- `daily_start`: Start time in hex (2 bytes, e.g., `21C` = 9:00 AM)
+- `daily_end`: End time in hex (2 bytes, e.g., `3FC` = 5:00 PM)
+- `allowed`: List of allowed door codes (2 bytes each, up to 5 doors)
+- `padding`: 0 bytes for the rest (min 1 byte, max 19 bytes)
+- `signature`: First 10 bytes of an ECC signature signed by a private key, of which the reader has the public key
 
-### Version 2 (Time-based Access)
-- `end_time`: End timestamp
-- `id`: Credential ID
-- `weekday_mask`: Bitmask for allowed days (e.g., `0F` = Monday to Friday)
-- `daily_start`: Start time in hex (e.g., `21C` = 9:00 AM)
-- `daily_end`: End time in hex (e.g., `3FC` = 5:00 PM)
-- `allowed`: List of allowed door codes (up to 5, typically 16–24 bits)
-- `padding`: Optional 1-byte padding
+```python
+version = 0x1
+end_time = 0x68491080
+card_details = 0x1005400114
+weekday_mask = 0x0F  # Monday to Friday
+daily_start = 0x021C  # 9:00 AM
+daily_end = 0x03FC   # 5:00 PM
+doors = [0x7e3f, 0x05f9, 0x00DB, 0xd3ad, 0x1234]
+padding_bytes = 0x0000000000000000000  # 9 padding bytes
+credential_payload = version + end_time + card_details + weekday_mask + daily_start + daily_end + doors + padding_bytes
+# Next line is the result of hashlib.sha256(credential_payload).digest()
+payload_hash = 0x8f23a41bce7f9543e3eb42a1baffb4743403002a8f5da3246b3359716f5f8ca2
+# Next line is the result of secret_key.sign_digest(payload_hash)
+full_sig = 0x3a82db797b3d8d154adf0f1369bdd331c66aa3edb13db874952edb33bbdfe4e7ef4349efa45684a260f88ec542156f7f5615e4d7a940b7b756e8a197910908b9
+# Next line is the first 10 bytes (20 chars) of full_sig
+signature_start = 0x3a82db797b3d8d154adf
+# Next line is credential_payload + signature_start
+final_payload = 0x1684910801005400114F021C03FC7e3f05f900DBd3ad123400000000000000003a82db797b3d8d154adf
+```
 
-### Version 3 (Block List)
-- `end_time`: End timestamp
-- `id`: Credential ID
-- `blocked`: List of **blocked** door/access codes (inverted logic)
-- `padding`: Optional 1-byte padding
+### Version 2 (Block List)
+- `version`: The version (1 byte)
+- `end_time`: End timestamp (4 bytes, Unix time)
+- `id`: Credential ID (5 bytes, H10304 format)
+- `blocked`: List of **blocked** door/access codes (2 bytes each, up to 4 doors, inverted logic)
+- `padding`: 0 bytes for the rest (min 1 byte, max 27 bytes)
+- `signature`: First 10 bytes of an ECC signature signed by a private key, of which the reader has the public key
 
-More formats (v4–v15) support features like door ranges, access groups, scan counters, rotating schedules, and ephemeral access. See `formats.md` for full spec.
+```python
+version = 0x2
+end_time = 0x68491080
+card_details = 0x1005400114
+blocked_doors = [0x1111, 0x2222, 0x3333, 0x4444]  # These doors are blocked
+padding_bytes = 0x000000000000000000000000000000000000000000000000000  # 25 padding bytes
+credential_payload = version + end_time + card_details + blocked_doors + padding_bytes
+# Next line is the result of hashlib.sha256(credential_payload).digest()
+payload_hash = 0x7c15f32ace8b9054e4fb53b1caffb4743403002a8f5da3246b3359716f5f19d4
+# Next line is the result of secret_key.sign_digest(payload_hash)
+full_sig = 0x1b73cb797b3d8d154adf0f1369bdd331c66aa3edb13db874952edb33bbdfe4e7ef4349efa45684a260f88ec542156f7f5615e4d7a940b7b756e8a197910908b9
+# Next line is the first 10 bytes (20 chars) of full_sig
+signature_start = 0x1b73cb797b3d8d154adf
+# Next line is credential_payload + signature_start
+final_payload = 0x26849108010054001141111222233334444000000000000000000000000000000000000000000000000000001b73cb797b3d8d154adf
+```
+
+More formats (v4–v15) could support features like door ranges, access groups, scan counters, rotating schedules, and ephemeral access. Feel free to issue a pull request if you want to add one!
 
 ---
 
